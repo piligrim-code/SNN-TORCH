@@ -1,0 +1,7 @@
+numpy>=1.26,<3
+pandas>=2.2,<4
+scikit-learn>=1.5,<2
+torch>=2.5,<3
+snntorch>=0.9,<1
+imbalanced-learn>=0.13,<1
+matplotlib>=3.9,<4
