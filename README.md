@@ -34,6 +34,13 @@ CI is not proof of accelerator compatibility.
 - Evaluation and prediction include the final incomplete batch, even when the
   whole test set is smaller than a training batch. Empty/partial evaluation is
   rejected, not reported as a successful score.
+- Evaluation/prediction accept standard batched `DataLoader` instances with a
+  sequential sampler, default collation and ordered delivery. Use
+  `DataLoader(dataset, batch_size=64, shuffle=False, drop_last=False)` or the
+  test loader returned by `make_loaders`. Replacement/shuffled/custom samplers,
+  custom collation and unordered delivery are rejected: matching the number of
+  rows alone cannot prove coverage, and predictions must retain dataset order.
+  This is a supported-loader contract, not protection from a malicious dataset.
 - Input tensors and labels move to the configured model device. Move the model
   before constructing its optimizer; a mismatch gives an explicit error.
 - Cross-entropy is averaged over samples rather than giving each batch equal

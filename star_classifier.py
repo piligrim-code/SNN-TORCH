@@ -5,7 +5,7 @@ import snntorch as snn
 from snntorch import surrogate
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import BatchSampler, DataLoader, Dataset, SequentialSampler, default_collate
 
 
 def set_seed(seed):
@@ -128,10 +128,23 @@ def classification_metrics(labels, probabilities, loss):
             "macro_sensitivity": defined_mean(sensitivity), "macro_specificity": defined_mean(specificity), "auc_roc": auc}
 
 
-def evaluate(model, loader, *, device="cpu"):
-    device = _check_device(model, device)
+def _check_evaluation_loader(loader):
+    """Count equality alone cannot detect duplicate or reordered sampled rows."""
     if loader.drop_last:
         raise ValueError("Evaluation must not drop incomplete batches")
+    if (type(loader) is not DataLoader or type(loader.sampler) is not SequentialSampler
+            or loader.sampler.data_source is not loader.dataset
+            or type(loader.batch_sampler) is not BatchSampler
+            or loader.batch_sampler.sampler is not loader.sampler
+            or loader.batch_sampler.drop_last
+            or loader.collate_fn is not default_collate
+            or not getattr(loader, "in_order", True)):
+        raise ValueError("Use a standard sequential batched DataLoader with default collation and ordered delivery")
+
+
+def evaluate(model, loader, *, device="cpu"):
+    device = _check_device(model, device)
+    _check_evaluation_loader(loader)
     model.eval()
     loss_sum, count = 0.0, 0
     all_labels, probabilities = [], []
@@ -152,8 +165,7 @@ def evaluate(model, loader, *, device="cpu"):
 
 def predict(model, loader, *, device="cpu"):
     device = _check_device(model, device)
-    if loader.drop_last:
-        raise ValueError("Prediction must not drop incomplete batches")
+    _check_evaluation_loader(loader)
     model.eval()
     result = []
     with torch.no_grad():

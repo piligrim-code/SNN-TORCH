@@ -9,7 +9,7 @@ import pytest
 from sklearn.model_selection import train_test_split
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import BatchSampler, DataLoader, SequentialSampler, default_collate
 
 import star_classifier as classifier
 
@@ -37,6 +37,43 @@ def test_unlabelled_dataset_and_prediction_work():
     result = classifier.predict(classifier.Net(2, 3), DataLoader(dataset, batch_size=64))
     assert result.shape == (65, 3)
     np.testing.assert_allclose(result.sum(axis=1), 1, atol=1e-6)
+
+
+class RepeatingBatchSampler(BatchSampler):
+    def __iter__(self):
+        yield [0] * len(self.sampler)
+
+
+def repeated_collate(batch):
+    return default_collate([batch[0]] * len(batch))
+
+
+@pytest.mark.parametrize("function", [classifier.evaluate, classifier.predict])
+@pytest.mark.parametrize("kind", ["repeated", "reverse", "batch_override", "collate_override", "unordered_delivery"])
+def test_evaluation_requires_once_in_dataset_order(function, kind):
+    dataset = classifier.CustomDataset(frame(3))
+    if kind == "batch_override":
+        loader = DataLoader(dataset, batch_sampler=RepeatingBatchSampler(SequentialSampler(dataset), 3, False))
+    elif kind == "collate_override":
+        loader = DataLoader(dataset, batch_size=3, collate_fn=repeated_collate)
+    elif kind == "unordered_delivery":
+        loader = DataLoader(dataset, batch_size=3)
+        loader.in_order = False
+    else:
+        loader = DataLoader(dataset, batch_size=3, sampler=[0, 0, 0] if kind == "repeated" else [2, 1, 0])
+    with pytest.raises(ValueError, match="sequential"):
+        function(nn.Linear(2, 3), loader)
+
+
+def test_predictions_preserve_dataset_row_order_across_batches():
+    values = pd.DataFrame({"a": [4., -4., 1.], "b": [0., 0., 0.]})
+    dataset = classifier.CustomDataset(values, is_train=False)
+    model = nn.Linear(2, 2, bias=False)
+    with torch.no_grad():
+        model.weight.copy_(torch.eye(2))
+    actual = classifier.predict(model, DataLoader(dataset, batch_size=2))
+    expected = torch.tensor(values.to_numpy(), dtype=torch.float32).softmax(1).numpy()
+    np.testing.assert_allclose(actual, expected)
 
 
 def test_unlabelled_inference_refuses_target_column():
